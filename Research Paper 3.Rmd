@@ -1,0 +1,189 @@
+---
+title: "Research Paper Code"
+output:
+  html_document:
+    df_print: paged
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+# libraries
+library(readr)
+library(naniar)
+library(randomForest)
+library(caret)
+library(ROSE)
+```
+
+
+```{r}
+data_full <- read.csv("kieadata15.csv", na.strings = c(" ", ""))
+summary(data_full)
+```
+
+```{r}
+# Remove month, year, yeart1, homeown, ent015ua, pid, wgtat, wgtat1, msafp, ind2, ind2_t1, natvty, se15u_t1, se15u, class_t1, class, spneth, hoursu1b_t1, indmaj2_t1, mlr_t1 
+data <- subset(data_full, select = -c(month,year,yeart1,homeown,ent015ua,pid,wgtat,wgtat1,msafp,ind2,ind2_t1,natvty,se15u_t1, se15u, class_t1, class,spneth, hoursu1b_t1, indmaj2_t1, mlr_t1))
+head(data)
+```
+
+```{r}
+# replace with na if faminc if -3, -2, -1 (Refused, don't know, and blank)
+# replace with na if msastat if 4 (Not Identified)
+
+data$faminc[data$faminc == -3] <- NA
+data$faminc[data$faminc == -2] <- NA
+data$faminc[data$faminc == -1] <- NA
+
+data$msastat[data$msastat == 4] <- NA
+
+# convert grdatn 0 (children) to 30, so that the difference between children and less than first grade is 1
+data$grdatn[data$grdatn == 0] <- 30
+
+# if hours is greater than 168, replace the value with NA
+data$hours[data$hours>168] <- NA
+
+```
+
+
+```{r}
+summary(data)
+```
+
+
+```{r}
+# Remove NA and missing data
+data <- na.omit(data)
+summary(data)
+```
+
+```{r}
+sapply(data,class)
+```
+
+```{r}
+# Reduce size of dataset so that it is easier to process
+set.seed(1)
+reduced <- sample(1:nrow(data),nrow(data)/2)
+data <- data[reduced,]
+
+# Set seed and create train and test set
+set.seed(1)
+train <- sample(1:nrow(data),nrow(data)/2)
+test <- -train
+
+# age, faminc, grdatn, hours, and hoursu1b are all integers  
+# wgta is numeric
+# everything else is a factor
+data <- transform(data,
+                  grdatn = as.integer(grdatn),
+                  marstat = as.factor(marstat),
+                  region = as.factor(region),
+                  state = as.factor(state),
+                  mlr = as.factor(mlr),
+                  msastat = as.factor(msastat),
+                  race = as.factor(race),
+                  indmaj2 = as.factor(indmaj2),
+                  female = as.factor(female),
+                  immigr = as.factor(immigr),
+                  ent015u = as.factor(ent015u),
+                  vet = as.factor(vet))
+```
+
+```{r}
+sapply(data,class)
+```
+
+```{r}
+# Create train and test set
+data_train <- data[train,]
+data_test <- data[test,]
+```
+
+
+```{r}
+# get the best mtry for the dataset
+best_mtry = floor(sqrt(ncol(data)-1))
+best_mtry
+```
+```{r}
+summary(data)
+```
+
+
+
+```{r}
+# create the random forest model
+set.seed(1)
+rf.data <- randomForest(ent015u~., data = data, subset = train, mtry = best_mtry, importance= TRUE)
+importance(rf.data)
+```
+
+```{r}
+# plot variable importance graph
+varImpPlot(rf.data, sort = TRUE)
+```
+
+
+```{r}
+# Random Forest prediction confusion matrix and accuracy
+set.seed(1)
+rf.predict <- predict(rf.data, data_test)
+confusionMatrix(rf.predict,data_test$ent015u)
+```
+
+```{r}
+roc.curve(data_test$ent015u, rf.predict, plotit = T)
+```
+
+```{r}
+# train data is imbalanced
+summary(data_train$ent015u)
+```
+
+
+```{r}
+# test data is imbalanced
+summary(data_test$ent015u)
+```
+
+```{r}
+# data is imbalanced, as there are many more cases where our dependent variable
+# equals 0 than equals 1 so we have to balance the data
+# will use ROSE package to synthetically generate balanced data
+
+data_train2 <- ROSE(ent015u ~ ., data = data_train, seed = 1)$data
+table(data_train2$ent015u)
+
+```
+```{r}
+# create the random forest model on balanced dataset
+set.seed(1)
+rf.data2 <- randomForest(ent015u~., data = data_train2, mtry = best_mtry, importance = TRUE)
+importance(rf.data2)
+```
+```{r}
+# plot variable importance graph
+varImpPlot(rf.data2, sort = TRUE)
+```
+```{r}
+# Random Forest prediction confusion matrix and accuracy
+set.seed(1)
+rf.predict2 <- predict(rf.data2, data_test)
+confusionMatrix(rf.predict2, data_test$ent015u)
+```
+```{r}
+roc.curve(data_test$ent015u, rf.predict2, plotit = T)
+```
+
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
